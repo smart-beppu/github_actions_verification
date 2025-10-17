@@ -7,6 +7,8 @@
   "scripts": {
     "lint": "eslint src/**/*.js",
     "lint:fix": "eslint src/**/*.js --fix",
+    "security-check": "npm audit && npm run lint",
+    "sast": "npm run security-check",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "devDependencies": {

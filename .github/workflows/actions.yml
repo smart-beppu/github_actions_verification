@@ -1,0 +1,222 @@
+name: Security Vulnerability Analysis
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  php-security-analysis:
+    runs-on: ubuntu-latest
+    name: PHP Security & Static Analysis
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer
+          extensions: openssl, curl
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install PHP dependencies
+        run: |
+          composer install --dev --no-progress --no-interaction
+
+      - name: Run PHP Security Checker
+        run: |
+          # セキュリティ脆弱性チェック
+          vendor/bin/security-checker security:check composer.lock || echo "php_security_failed=true" >> $GITHUB_ENV
+
+      - name: Run PHPStan (Static Analysis)
+        run: |
+          # PHPStan設定ファイルが存在することを確認
+          if [ ! -f phpstan.neon ]; then
+            echo "PHPStan configuration not found!"
+            exit 1
+          fi
+          vendor/bin/phpstan analyse src --level=8 --no-progress || echo "phpstan_failed=true" >> $GITHUB_ENV
+
+      - name: Run PHPStan Strict Rules
+        run: |
+          # 厳格なルールでの追加チェック
+          vendor/bin/phpstan analyse src --level=max --no-progress || echo "phpstan_strict_failed=true" >> $GITHUB_ENV
+
+      - name: PHP Syntax Check
+        run: |
+          # 全PHPファイルの構文チェック
+          find src -name "*.php" -exec php -l {} \; || echo "php_syntax_failed=true" >> $GITHUB_ENV
+
+      - name: Check PHP Analysis Results
+        run: |
+          if [ "$php_security_failed" = "true" ]; then
+            echo "❌ PHP Security vulnerabilities detected!"
+            exit 1
+          fi
+          if [ "$phpstan_failed" = "true" ] || [ "$phpstan_strict_failed" = "true" ]; then
+            echo "❌ PHP Static analysis failed!"
+            exit 1
+          fi
+          if [ "$php_syntax_failed" = "true" ]; then
+            echo "❌ PHP Syntax errors detected!"
+            exit 1
+          fi
+          echo "✅ PHP Security and Static Analysis passed!"
+
+  javascript-security-analysis:
+    runs-on: ubuntu-latest
+    name: JavaScript Security & Static Analysis
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install JavaScript dependencies
+        run: |
+          npm ci
+
+      - name: Run npm audit (Security Check)
+        run: |
+          # Node.js依存関係の脆弱性チェック
+          npm audit --audit-level=moderate || echo "npm_security_failed=true" >> $GITHUB_ENV
+
+      - name: Run ESLint with Security Plugin
+        run: |
+          # セキュリティルールを含むESLintチェック
+          if [ ! -f eslint.config.js ]; then
+            echo "ESLint configuration not found!"
+            exit 1
+          fi
+          npm run lint || echo "eslint_failed=true" >> $GITHUB_ENV
+
+      - name: Check JavaScript files exist
+        run: |
+          # JavaScriptファイルの存在確認
+          if [ ! -f "src/vulnerabilities.js" ]; then
+            echo "Expected JavaScript files not found!"
+            exit 1
+          fi
+
+      - name: JavaScript Syntax Check
+        run: |
+          # JavaScript構文チェック
+          find src -name "*.js" -exec node --check {} \; || echo "js_syntax_failed=true" >> $GITHUB_ENV
+
+      - name: Check JavaScript Analysis Results
+        run: |
+          if [ "$npm_security_failed" = "true" ]; then
+            echo "❌ JavaScript Security vulnerabilities detected in dependencies!"
+            exit 1
+          fi
+          if [ "$eslint_failed" = "true" ]; then
+            echo "❌ JavaScript ESLint security checks failed!"
+            exit 1
+          fi
+          if [ "$js_syntax_failed" = "true" ]; then
+            echo "❌ JavaScript Syntax errors detected!"
+            exit 1
+          fi
+          echo "✅ JavaScript Security and Static Analysis passed!"
+
+  security-summary:
+    runs-on: ubuntu-latest
+    needs: [php-security-analysis, javascript-security-analysis]
+    if: always()
+    steps:
+      - name: Security Analysis Summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const phpResult = '${{ needs.php-security-analysis.result }}';
+            const jsResult = '${{ needs.javascript-security-analysis.result }}';
+
+            let title = '🔍 Security Analysis Summary';
+            let body = `Security vulnerability analysis completed for commit ${context.sha}\n\n`;
+
+            body += `## Results\n`;
+            body += `- PHP Security Analysis: ${phpResult === 'success' ? '✅ Passed' : '❌ Failed'}\n`;
+            body += `- JavaScript Security Analysis: ${jsResult === 'success' ? '✅ Passed' : '❌ Failed'}\n\n`;
+
+            if (phpResult === 'success' && jsResult === 'success') {
+              title = '✅ All Security Checks Passed';
+              body += `🎉 All security vulnerability checks passed successfully!\n\n`;
+            } else {
+              title = '⚠️ Security Issues Detected';
+              body += `⚠️ Security vulnerabilities or static analysis issues detected. Please review the logs.\n\n`;
+            }
+
+            body += `**Commit:** ${context.sha}\n`;
+            body += `**Branch:** ${context.ref}\n`;
+            body += `**Files Analyzed:**\n`;
+            body += `- PHP: src/Vulnerabilities.php\n`;
+            body += `- JavaScript: src/vulnerabilities.js\n`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: phpResult === 'success' && jsResult === 'success' ? ['security-passed'] : ['security-failed']
+            });
+
+  auto-fix-attempt:
+    runs-on: ubuntu-latest
+    needs: [php-security-analysis, javascript-security-analysis]
+    if: failure()
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Attempt JavaScript Auto-fix
+        run: |
+          npm ci
+          # ESLintの自動修正を試行
+          npm run lint:fix || echo "ESLint auto-fix attempted"
+
+      - name: Check for auto-fixable changes
+        run: |
+          if git diff --quiet; then
+            echo "No auto-fixable issues found"
+          else
+            echo "Auto-fixable issues detected and fixed"
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
+            git config --local user.name "github-actions[bot]"
+            git add .
+            git commit -m "🤖 Auto-fix security and linting issues
+            
+            - Applied ESLint auto-fixes
+            - Fixed formatting issues
+            - Resolved minor security warnings
+            
+            [skip ci]"
+            git push
+            
+            # Create PR comment about auto-fixes
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "Auto-fixes applied to this PR"
+            fi
+          fi
