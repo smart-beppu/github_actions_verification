@@ -1,0 +1,6 @@
+parameters:
+    level: 8
+    paths:
+        - src
+    ignoreErrors:
+        # Add any specific ignores here if needed

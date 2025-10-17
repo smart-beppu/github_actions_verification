@@ -1,0 +1,33 @@
+{
+    "name": "smart-beppu/github-actions-verification",
+    "description": "GitHub Actions SAST verification project",
+    "type": "project",
+    "require": {
+        "php": ">=8.2"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^1.10 || ^2.0",
+        "phpstan/phpstan-strict-rules": "^1.5 || ^2.0",
+        "enlightn/security-checker": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "scripts": {
+        "psalm": "psalm",
+        "phpstan": "phpstan analyse",
+        "sast": [
+            "@psalm",
+            "@phpstan"
+        ]
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "disable-tls": false,
+        "secure-http": true,
+        "cafile": "C:\\php-8.4\\extras\\curl\\cacert.pem",
+        "vendor-dir": "vendor"
+    }
+}
