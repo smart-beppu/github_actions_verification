@@ -9,7 +9,7 @@ on:
 jobs:
   php-security-analysis:
     runs-on: ubuntu-latest
-    name: PHP Security & Static Analysis
+    name: PHP 静的解析とセキュリティチェック
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -30,7 +30,7 @@ jobs:
 
       - name: Install PHP dependencies
         run: |
-          composer install --dev --no-progress --no-interaction
+          composer install --dev --no-progress --no-interaction --disable-tls
 
       - name: Run PHP Security Checker
         run: |
@@ -74,7 +74,7 @@ jobs:
 
   javascript-security-analysis:
     runs-on: ubuntu-latest
-    name: JavaScript Security & Static Analysis
+    name: JavaScript 静的解析とセキュリティチェック
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
